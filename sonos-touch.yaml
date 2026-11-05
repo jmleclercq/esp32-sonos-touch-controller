@@ -1,0 +1,286 @@
+# ESP32-3248S035C (ST7796 480x320 + GT911 capacitive touch) -> multi-room Sonos controller
+# UI code is in ui.h, one Home Assistant media_player per room is declared in `packages` below.
+substitutions:
+  name: sonos-touch
+  # Screen sleep: dim after N s without touch, backlight off after M s; any touch wakes it
+  dim_after_s: "30"
+  sleep_after_s: "120"
+  dim_level: "0.15"
+  ha_url: !secret ha_url
+  friendly_name: "Sonos Touch"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  includes:
+    - ui.h
+
+# ---- Rooms: one entry per Sonos media_player (max 5 shown in the picker) ----
+packages:
+  room0: !include {file: room.yaml, vars: {idx: "0", entity: media_player.arc, label: "Arc"}}
+  room1: !include {file: room.yaml, vars: {idx: "1", entity: media_player.unnamed_room, label: "Salle TV"}}
+  room2: !include {file: room.yaml, vars: {idx: "2", entity: media_player.one, label: "Salle de bain"}}
+  room3: !include {file: room.yaml, vars: {idx: "3", entity: media_player.unnamed_room_2, label: "Nomade"}}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  homeassistant_services: true
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+
+captive_portal:
+
+http_request:
+  timeout: 10s
+  buffer_size_rx: 4096
+
+online_image:
+  - id: art
+    url: "${ha_url}/"
+    format: AUTO
+    type: RGB565
+    resize: 96x96
+    buffer_size: 8192
+    update_interval: never
+    on_download_finished:
+      - lambda: 'art_loaded_url = art_pending_url; art_ok = true; if (screen_mode == 0) dirty |= Z_ART;'
+    on_error:
+      - lambda: 'art_loaded_url.clear(); art_ok = false; if (screen_mode == 0) dirty |= Z_ART;'
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# --------------------
+# Hardware
+# --------------------
+spi:
+  - id: spi_bus
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+
+i2c:
+  sda: GPIO33
+  scl: GPIO32
+
+output:
+  - platform: ledc
+    pin: GPIO27
+    id: backlight_out
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    output: backlight_out
+    id: backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 300ms
+
+font:
+  - {file: "gfonts://Roboto@700", id: f_title,  size: 32, glyphsets: [GF_Latin_Core]}
+  - {file: "gfonts://Roboto@500", id: f_artist, size: 22, glyphsets: [GF_Latin_Core]}
+  - {file: "gfonts://Roboto@500", id: f_small,  size: 17, glyphsets: [GF_Latin_Core]}
+  - {file: "gfonts://Roboto@500", id: f_tiny,   size: 14, glyphsets: [GF_Latin_Core]}
+
+# --------------------
+# Display: redrawn zone by zone (see ui.h), never as a whole except on screen change
+# --------------------
+display:
+  - platform: mipi_spi
+    id: lcd
+    model: ST7796
+    spi_id: spi_bus
+    data_rate: 40MHz
+    buffer_size: 33%
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    reset_pin: GPIO4
+    rotation: 90
+    auto_clear_enabled: false
+    update_interval: never
+    lambda: |-
+      ui_draw(it, id(f_title), id(f_artist), id(f_small), id(f_tiny), id(art));
+
+# Scheduler: decides which zone needs repainting and paints one per tick
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          static uint32_t last_scroll = 0;
+          static int last_sec = -1;
+          static uint32_t vol_sent = 0;
+          uint32_t now = millis();
+          Room &r = rooms[cur_room];
+          // clock
+          auto t = id(ha_time).now();
+          if (t.is_valid()) {
+            char b[8];
+            snprintf(b, sizeof(b), "%02d:%02d", t.hour, t.minute);
+            if (clock_str != b) { clock_str = b; if (screen_mode == 0) dirty |= Z_HEAD; }
+          }
+          if (screen_mode == 0) {
+            if (now - last_scroll > 60) {
+              last_scroll = now;
+              if (scroll_title) dirty |= Z_TITLE;
+              if (scroll_artist) dirty |= Z_ARTIST;
+              if (scroll_album) dirty |= Z_ALBUM;
+            }
+            if (room_playing(r)) {
+              int s = (int) room_pos(r);
+              if (s != last_sec) { last_sec = s; dirty |= Z_PROG; }
+            }
+          }
+          // screen sleep
+          {
+            uint32_t idle = now - last_touch;
+            auto *lt = id(backlight);
+            if (light_stage == 0 && idle > ${dim_after_s} * 1000UL && lt->remote_values.is_on()) {
+              awake_b = lt->remote_values.get_brightness();
+              light_stage = 1;
+              lt->make_call().set_state(true).set_brightness(${dim_level}f).set_transition_length(1000).perform();
+            } else if (light_stage == 1 && idle > ${sleep_after_s} * 1000UL) {
+              light_stage = 2;
+              lt->make_call().set_state(false).set_transition_length(500).perform();
+            }
+          }
+          if (art_reload) {
+            art_reload = false;
+            if (rooms[cur_room].pic.empty() || rooms[cur_room].pic == "unknown") {
+              art_ok = false; if (screen_mode == 0) dirty |= Z_ART;
+            } else {
+              std::string u = std::string("${ha_url}") + rooms[cur_room].pic;
+              if (u == art_loaded_url) {
+                art_ok = true; if (screen_mode == 0) dirty |= Z_ART;   // buffer already holds this cover
+              } else {
+                art_pending_url = u;
+                id(load_art).execute();
+              }
+            }
+          }
+          if (vol_drag && now - vol_sent > 250) {
+            vol_sent = now;
+            id(ha_setvol).execute();
+          }
+          if (dirty) {
+            // round-robin so a constantly-dirty zone (scrolling title) cannot starve the others
+            static int last_bit = 0;
+            uint32_t z = 0;
+            if (dirty & Z_ALL) {
+              z = Z_ALL;
+            } else {
+              for (int k = 1; k <= 9 && !z; k++) {
+                int b = (last_bit + k) % 9;
+                if (dirty & (1u << b)) { z = 1u << b; last_bit = b; }
+              }
+            }
+            dirty = (z == Z_ALL) ? 0 : (dirty & ~z);
+            draw_zone = z;
+            ui_page = 0;
+            id(lcd).update();
+          }
+
+# --------------------
+# Touch
+# --------------------
+touchscreen:
+  - platform: gt911
+    id: touch
+    reset_pin: GPIO25
+    update_interval: 50ms
+    on_touch:
+      - lambda: |-
+          last_touch = millis();
+          woke_touch = false;
+          if (light_stage != 0) {
+            woke_touch = true;   // this touch only wakes the screen
+            light_stage = 0;
+            id(backlight)->make_call().set_state(true).set_brightness(awake_b).set_transition_length(250).perform();
+          }
+          int x, y;
+          map_touch(touch.x, touch.y, x, y);
+          ui_touch(x, y);
+      - if:
+          condition: {lambda: 'return ui_action == 1;'}
+          then: [{script.execute: ha_prev}]
+      - if:
+          condition: {lambda: 'return ui_action == 2;'}
+          then: [{script.execute: ha_playpause}]
+      - if:
+          condition: {lambda: 'return ui_action == 3;'}
+          then: [{script.execute: ha_next}]
+      - if:
+          condition: {lambda: 'return ui_action == 4;'}
+          then: [{script.execute: ha_mute}]
+    on_update:
+      - lambda: |-
+          if (!touches.empty()) last_touch = millis();
+          if (touches.empty() || !vol_drag) return;
+          int x, y;
+          map_touch(touches[0].x, touches[0].y, x, y);
+          vol_from_x(x);
+    on_release:
+      - lambda: 'ui_release();'
+      - if:
+          condition: {lambda: 'return vol_drag;'}
+          then:
+            - lambda: 'vol_drag = false; vol_busy = millis(); dirty |= Z_VOL;'
+            - script.execute: ha_setvol
+
+script:
+  - id: load_art
+    mode: restart
+    then:
+      - online_image.set_url:
+          id: art
+          url: !lambda 'return art_pending_url;'
+  - id: ha_prev
+    then:
+      - homeassistant.action:
+          action: media_player.media_previous_track
+          data:
+            entity_id: !lambda 'return rooms[cur_room].entity;'
+  - id: ha_next
+    then:
+      - homeassistant.action:
+          action: media_player.media_next_track
+          data:
+            entity_id: !lambda 'return rooms[cur_room].entity;'
+  - id: ha_playpause
+    then:
+      - homeassistant.action:
+          action: media_player.media_play_pause
+          data:
+            entity_id: !lambda 'return rooms[cur_room].entity;'
+  - id: ha_mute
+    then:
+      - lambda: 'rooms[cur_room].muted = !rooms[cur_room].muted; mute_busy = millis(); dirty |= Z_VOL;'
+      - homeassistant.action:
+          action: media_player.volume_mute
+          data:
+            entity_id: !lambda 'return rooms[cur_room].entity;'
+            is_volume_muted: !lambda 'return rooms[cur_room].muted ? "true" : "false";'
+  - id: ha_setvol
+    then:
+      - homeassistant.action:
+          action: media_player.volume_set
+          data:
+            entity_id: !lambda 'return rooms[cur_room].entity;'
+            volume_level: !lambda |-
+              char b[12];
+              snprintf(b, sizeof(b), "%.2f", vol_local);
+              return std::string(b);

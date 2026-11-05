@@ -1,0 +1,88 @@
+# One Sonos room: subscribes to a Home Assistant media_player and mirrors it into rooms[${idx}].
+# Included from sonos-touch.yaml with vars {idx, entity, label}.
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: |-
+            rooms[${idx}].entity = "${entity}";
+            rooms[${idx}].name = "${label}";
+            if (n_rooms < ${idx} + 1) n_rooms = ${idx} + 1;
+
+text_sensor:
+  - platform: homeassistant
+    id: ha_${idx}_1
+    entity_id: ${entity}
+    on_value:
+      - lambda: |-
+          rooms[${idx}].state = x; rooms[${idx}].pos_ts = millis();
+          room_changed(${idx}, Z_HEAD | Z_TITLE | Z_ARTIST | Z_ALBUM | Z_PROG | Z_CTRL | Z_VOL);
+  - platform: homeassistant
+    id: ha_${idx}_3
+    entity_id: ${entity}
+    attribute: media_title
+    on_value:
+      - lambda: |-
+          rooms[${idx}].title = x;
+          if (${idx} == cur_room) title_t0 = millis();
+          room_changed(${idx}, Z_TITLE);
+  - platform: homeassistant
+    id: ha_${idx}_4
+    entity_id: ${entity}
+    attribute: media_artist
+    on_value:
+      - lambda: |-
+          rooms[${idx}].artist = x;
+          room_changed(${idx}, Z_ARTIST);
+  - platform: homeassistant
+    id: ha_${idx}_9
+    entity_id: ${entity}
+    attribute: is_volume_muted
+    on_value:
+      - lambda: |-
+          if (millis() - mute_busy > 3000) {
+            rooms[${idx}].muted = (x == "True" || x == "true" || x == "on");
+            room_changed(${idx}, Z_VOL);
+          }
+  - platform: homeassistant
+    id: ha_${idx}_10
+    entity_id: ${entity}
+    attribute: entity_picture
+    on_value:
+      - lambda: |-
+          rooms[${idx}].pic = x;
+          if (${idx} == cur_room) art_reload = true;
+  - platform: homeassistant
+    id: ha_${idx}_5
+    entity_id: ${entity}
+    attribute: media_album_name
+    on_value:
+      - lambda: |-
+          rooms[${idx}].album = x;
+          room_changed(${idx}, Z_ALBUM);
+
+sensor:
+  - platform: homeassistant
+    id: ha_${idx}_6
+    entity_id: ${entity}
+    attribute: volume_level
+    on_value:
+      - lambda: |-
+          rooms[${idx}].vol = x;
+          if (millis() - vol_busy > 1500) room_changed(${idx}, Z_VOL);
+  - platform: homeassistant
+    id: ha_${idx}_7
+    entity_id: ${entity}
+    attribute: media_position
+    on_value:
+      - lambda: |-
+          rooms[${idx}].pos = x; rooms[${idx}].pos_ts = millis();
+          room_changed(${idx}, Z_PROG);
+  - platform: homeassistant
+    id: ha_${idx}_8
+    entity_id: ${entity}
+    attribute: media_duration
+    on_value:
+      - lambda: |-
+          rooms[${idx}].dur = x;
+          room_changed(${idx}, Z_PROG);
