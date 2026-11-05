@@ -14,7 +14,8 @@ with GT911 capacitive touch) and talking to **Home Assistant**.
 - Landscape 480×320 dark UI: title, artist, album (long text scrolls), **96×96 album cover**, progress bar, clock
 - Play / pause, previous, next, **volume slider**, **mute** (tap the speaker icon)
 - **Multi-room**: tap the room chip (top left) to pick a Sonos player
-- **Screen sleep**: dims after 30 s, backlight off after 2 min, any touch wakes it (that touch is ignored)
+- **Screen sleep**: stays on while any room is playing; once nothing plays it dims after 30 s and the backlight turns off after 2 min. Any touch (or a playback start) wakes it; the touch that wakes it is ignored
+- **Follows the music**: if the displayed room is paused while another one is still playing, the display switches to the playing room
 - Smooth partial redraw: only the part of the screen that changes is repainted
 - OTA updates, backlight exposed as a light in Home Assistant
 
@@ -58,8 +59,8 @@ Settings are in the `substitutions:` block of `sonos-touch.yaml`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `dim_after_s` | 30 | seconds without touch before dimming |
-| `sleep_after_s` | 120 | seconds without touch before the backlight turns off |
+| `dim_after_s` | 30 | seconds of silence (nothing playing, no touch) before dimming |
+| `sleep_after_s` | 120 | seconds of silence before the backlight turns off |
 | `dim_level` | 0.15 | dimmed brightness (0–1) |
 | `ha_url` | from `secrets.yaml` | Home Assistant URL used for covers |
 

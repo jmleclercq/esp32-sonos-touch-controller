@@ -145,8 +145,41 @@ interval:
               if (s != last_sec) { last_sec = s; dirty |= Z_PROG; }
             }
           }
-          // screen sleep
+          // follow the music: if the displayed room stops while another one is still playing, switch to it
           {
+            static int last_cur = -1;
+            static bool prev_playing = false;
+            bool now_playing = room_playing(rooms[cur_room]);
+            if (cur_room != last_cur) {            // room changed by the user: just resync, never auto-switch
+              last_cur = cur_room;
+              prev_playing = now_playing;
+            } else {
+              if (prev_playing && !now_playing && screen_mode == 0) {
+                for (int i = 0; i < n_rooms; i++) {
+                  if (i != cur_room && room_playing(rooms[i])) {
+                    cur_room = i; last_cur = i;
+                    dirty = Z_ALL; title_t0 = now; art_ok = false; art_reload = true;
+                    now_playing = true;
+                    break;
+                  }
+                }
+              }
+              prev_playing = now_playing;
+            }
+          }
+          // screen sleep: stays on while any room is playing; the idle countdown only runs when nothing plays
+          {
+            bool any_playing = false;
+            for (int i = 0; i < n_rooms; i++) if (room_playing(rooms[i])) any_playing = true;
+            static bool was_playing = false;
+            if (any_playing) {
+              last_touch = now;
+              if (light_stage != 0 && !was_playing) {   // playback just started while the screen was asleep: wake
+                light_stage = 0;
+                id(backlight)->make_call().set_state(true).set_brightness(awake_b).set_transition_length(250).perform();
+              }
+            }
+            was_playing = any_playing;
             uint32_t idle = now - last_touch;
             auto *lt = id(backlight);
             if (light_stage == 0 && idle > ${dim_after_s} * 1000UL && lt->remote_values.is_on()) {
