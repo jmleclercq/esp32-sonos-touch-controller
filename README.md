@@ -18,6 +18,14 @@ with GT911 capacitive touch) and talking to **Home Assistant**.
 - Smooth partial redraw: only the part of the screen that changes is repainted
 - OTA updates, backlight exposed as a light in Home Assistant
 
+## Preview
+
+| Player | Room picker |
+|---|---|
+| ![Player](docs/player.png) | ![Room picker](docs/rooms.png) |
+
+*Renderings generated from the UI code (same layout, colours and fonts as the firmware) with sample data; the cover is an illustration. Not photos of the device.*
+
 ## Hardware
 
 **ESP32-3248S035C** — ESP32 (dual core, 4 MB flash, no PSRAM), 3.5" 320×480 **ST7796** display, **GT911** capacitive touch,
@@ -66,6 +74,7 @@ UI texts ("Hors ligne", "Pièces", "Rien en lecture") are in French and can be c
 | `ui.h` | all drawing code and touch handling (zones, room picker, marquee, calibration) |
 | `secrets.yaml.example` | template for `secrets.yaml` (git-ignored) |
 | `hardware.md` | board, pinout, touch orientation |
+| `docs/` | preview images used in this README |
 
 ## How it works
 
