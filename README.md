@@ -21,11 +21,17 @@ with GT911 capacitive touch) and talking to **Home Assistant**.
 
 ## Preview
 
+<p align="center">
+  <img src="docs/image.jpeg" alt="The controller running on the ESP32-3248S035C" width="600">
+</p>
+
+*The controller running on the ESP32-3248S035C.*
+
 | Player | Room picker |
 |---|---|
 | ![Player](docs/player.png) | ![Room picker](docs/rooms.png) |
 
-*Renderings generated from the UI code (same layout, colours and fonts as the firmware) with sample data; the cover is an illustration. Not photos of the device.*
+*Renderings generated from the UI code (same layout, colours and fonts as the firmware) with sample data; the cover is an illustration.*
 
 ## Hardware
 
